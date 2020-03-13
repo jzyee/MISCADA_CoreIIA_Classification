@@ -1,6 +1,6 @@
 ---
 title: "MISCADA Core IIA (3) Classification"
-author: "A. Student"
+author: "Jeremy Stephen Gabriel Yee"
 date: "20 March 2020"
 output: pdf_document
 classoption: a4paper

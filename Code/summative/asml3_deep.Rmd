@@ -1,0 +1,364 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+ 
+
+
+
+https://archive.ics.uci.edu/ml/datasets/Epileptic+Seizure+Recognition
+
+```{r}
+raw_data<-read.csv("data.csv", header=TRUE)
+```
+
+```{r}
+# Return a logical vector indicating which cases are complete, i.e., have no missing values
+raw_data<-raw_data[complete.cases(raw_data),]
+```
+
+```{r}
+library("rsample")
+set.seed(212)
+
+smaller_df <- function(input_df){
+  y <- input_df[,180]
+  unique_classes <- unique(unlist(y))
+  for(idx in 1:length(unique_classes)){
+    raw_class <- input_df[input_df$y == idx,]
+    row_idx <- sample(nrow(raw_class))
+    sff_class <- raw_class[row_idx,]
+    short_class <- sff_class[1:400,]
+    if(idx==1){
+      output = short_class
+    }
+    else{
+      output = rbind(output,short_class)
+    }
+  }
+  return(output)
+}
+
+dim(raw_data)
+raw_data <- smaller_df(raw_data)
+dim(raw_data)
+```
+
+```{r}
+raw_feat <- raw_data[,2:179]
+y <- raw_data[,180]
+```
+
+
+```{r}
+
+raw_data <- raw_feat
+raw_data$y <- as.factor(y)
+
+
+
+# First get the training
+epil_split <- initial_split(raw_data)
+epil_train <- training(epil_split)
+
+# Then further split the training into validate and test
+epil_test <- testing(epil_split)
+# epil_split2 <- initial_split(testing(epil_split), 0.5)
+# epil_validate <- training(epil_split2)
+# epil_test <- testing(epil_split2)
+
+
+library("recipes")
+
+cake <- recipe(y ~ ., data = raw_data) %>%
+  # step_meanimpute(all_numeric()) %>% # impute missings on numeric values with the mean
+  step_center(all_numeric()) %>% # center by subtracting the mean from all numeric features
+  step_scale(all_numeric()) %>% # scale by dividing by the standard deviation on all numeric features
+  #step_dummy(all_nominal(), one_hot = TRUE) %>% # turn all factors into a one-hot coding
+  prep(training = epil_train) # learn all the parameters of preprocessing on the training data
+
+epil_train_final <- bake(cake, new_data = epil_train) # apply preprocessing to training data
+#epil_validate_final <- bake(cake, new_data = epil_validate) # apply preprocessing to validation data
+epil_test_final <- bake(cake, new_data = epil_test) # apply preprocessing to testing data
+
+
+```
+
+
+
+
+
+
+
+```{r}
+
+eeg_1 <- raw_feat[1,]
+eeg_1 <- scales::rescale(as.numeric(eeg_1), to=c(0,1))
+#178 data pounts per sec
+
+#jpeg("train/test_plot.jpg", width = 350, height = 350)
+library(signal)
+library(imager)
+library(seewave)
+
+# spec <- specgram(
+#   x= as.numeric(eeg_1),
+#   Fs=178,
+#   window=15,
+#   
+# 
+# )
+
+spec_img <- spectro(eeg_1,178)
+
+str(spec_img)
+# removes the axis and labels
+# plot(spec,
+#   xaxt='n',
+#   yaxt='n',
+#   ann=FALSE)
+# 
+# dev.off()
+```
+
+
+```{r}
+require(icesTAF)
+require(signal)
+#require(ggplot2)
+
+create_dataset <-function(input_df , folder_name){
+  unlink(folder_name, recursive = TRUE)
+  mkdir(folder_name)
+  
+  
+  class_list <- as.list(rep(0,nrow(input_df)))
+  
+  for(idx in 1:nrow(input_df)){
+    img_class = input_df[idx,179]
+    filename = paste(folder_name,'/img',idx,'_y',img_class,'.png',sep='')
+    #print(filename)
+    class_list[idx] <- img_class
+    png(filename, width = 350, height = 350)
+  
+    spec <- specgram(
+      x= as.numeric(input_df[idx,1:178]),
+      Fs=178,
+      window=15
+    )
+    
+    # removes the axis and labels
+    plot(spec,
+      xaxt='n',
+      yaxt='n',
+      ann=FALSE)
+    
+    dev.off()
+  }
+  
+  write.csv(unlist(class_list), file = paste(folder_name, '/class_list.csv', sep=''))
+
+  return(class_list)
+}
+
+
+
+# train
+train_class_list <-create_dataset(epil_train_final,'train')
+
+
+# test
+test_class_list <- create_dataset(epil_test_final,'test')
+
+# val
+#val_class_list <- create_dataset(epil_validate_final[1:11,],'val')
+#val_class_list
+```
+
+```{r}
+library(magick)
+
+trim_whitespace <-function(folder_name){
+  files <- list.files(path=folder_name, pattern="*.png", full.names=TRUE, recursive=FALSE)
+  for(file in files){
+    #file_path <- paste(folder_name,'/', file)
+    #print(file_path)
+    tmp_img <- image_read(file)
+    #image_browse(tmp_img)
+    tmp_img <- image_crop(tmp_img,"230x350+59")
+    tmp_img <- image_rotate(tmp_img, 90)
+    tmp_img <- image_crop(tmp_img,'218x230+74')
+    #image_browse(tmp_img)
+    image_write(tmp_img,file,format='png')
+  }
+}
+
+trim_whitespace('train')
+
+
+
+
+```
+```{r}
+trim_whitespace('test')
+```
+
+```{r}
+trim_whitespace('unclip')
+```
+
+#after making pictures can start here
+
+```{r}
+train_y <- read.csv('train/class_list.csv')[2]
+
+test_y <- read.csv('test/class_list.csv')[2]
+
+val_y <- read.csv('val/class_list.csv')[2]
+
+```
+
+
+```{r}
+library(reticulate)
+use_python('C:/Users/Anaconda3/condabin') # you will need to set path for your python env
+trial_img <- imager::load.image('train/img10_y1.jpg')
+
+library(tensorflow)
+library(keras)
+use_session_with_seed(44)
+
+resnet50 <- keras::application_resnet50(weights='imagenet')
+
+
+```
+
+
+```{r}
+x <- imager::load.image('train/img10_y1.jpg')
+x <- imager::resize(x, 224, 224)
+plot(as.raster(x))
+str(x)
+x <- array_reshape(x, c(1,224,224,3))
+str(x)
+x <- imagenet_preprocess_input(x)
+
+trial_pred <- resnet50 %>% predict(x)
+imagenet_decode_predictions(trial_pred, top = 5)
+# 
+# preds <- resnet50 %>%
+#         predict(trial_img)
+```
+
+```{r}
+library("rsample")
+set.seed(212)
+
+library(reticulate)
+use_python('C:/Users/Anaconda3')
+
+load_img_data <- function(folder_name){
+  
+  files <- list.files(path=folder_name, pattern="*.jpg", full.names=TRUE, recursive=FALSE)
+  print(length(files))
+  output <- array(rep(0, length(files)*100*100*3 ), dim=c(length(files),100,100,3))
+  print(str(output))
+  for(idx in 1:length(files)){
+    x <- imager::load.image(files[idx])
+    x <- imager::resize(x, 100, 100)
+    x <- array_reshape(x, c(1,100,100,3))
+    output[idx,,,] <- x
+  }
+  # output <- imagenet_preprocess_input(output)
+  return(output)
+}
+#memory.limit(size=4000)
+train_x <- load_img_data('train')
+print(str(train_x))
+#train_x <- imager::load.image('train/img1_y4.jpg')
+
+```
+
+```{r}
+test_x <- load_img_data('train')
+str(test_x)
+```
+
+
+```{r}
+#max(train_x)
+#min(train_x)
+plot(unlist(epil_train_final[1,]),type='l')
+plot(as.raster(train_x[1,,,]))
+print(train_y[1,])
+hist(train_x[1,,,])
+```
+
+
+```{r}
+library(keras)
+use_session_with_seed(44)
+
+train_y.cat <- to_categorical(train_y)[,-1]
+train_y.cat
+train_y
+```
+
+```{r}
+test_y.cat <- to_categorical(test_y)[,-1]
+test_y.cat
+test_y
+```
+
+
+```{r}
+basic_v3 <- application_inception_v3(weights = 'imagenet',
+                                         include_top = FALSE,
+                                         input_shape = c(100,100,3))
+```
+
+
+```{r}
+
+
+
+
+mod_v3 <-  keras_model_sequential() %>%
+           basic_v3 %>%
+           layer_flatten() %>%
+           layer_dense(units = 256, activation='relu') %>%
+           layer_dense(units = 5, activation='softmax')
+```
+
+```{r}
+summary(mod_v3)
+```
+```{r}
+freeze_weights(basic_v3)
+summary(mod_v3)
+```
+```{r}
+mod_v3 %>% compile(loss= 'categorical_crossentropy',
+                   optimizer = 'adam',
+                   metrics = 'accuracy')
+```
+
+```{r}
+history <- mod_v3 %>% fit(train_x,
+  train_y.cat,
+  epochs = 10,
+  batch_size = 50,
+  validation_split = 0.2
+)
+```
+```{r}
+mod_v3 %>% evaluate(test_x, test_y.cat)
+pred <- mod_v3 %>% predict_classes(test_x)
+(tab <- table(Predicted = pred, Actual= unlist(test_y)))
+100*diag(tab) / colSums(tab)
+```
+```{r}
+str(test_y.cat)
+```
+

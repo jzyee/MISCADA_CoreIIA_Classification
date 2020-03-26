@@ -1,0 +1,41 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+raw_data<-read.csv("data.csv", header=TRUE)
+```
+
+```{r}
+raw_feat <- raw_data[,2:179]
+y <- raw_data[,180]
+
+unique_classes <- unique(unlist(y))
+
+for(el in unique_classes){
+  cat('class',el,':',sum(el == y),' ',sep=" ")
+}
+```
+
+```{r}
+skimr::skim(raw_data)
+```
+```{r}
+# class 1 the hardest to predict, the most variation
+DataExplorer::plot_boxplot(raw_data, by = "y", ncol = 10)
+```
+
+```{r}
+norm_feat.pr <- prcomp(norm_feat)
+summary(norm_feat.pr)
+plot(norm_feat.pr)
+
+```
+
+```{r}
+eeg_1 <- unlist(raw_feat[1,])
+plot(unlist(raw_feat[1,]),type='l')
+```
+

@@ -1,0 +1,55 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+knn
+svm
+mlp
+nb
+
+```{r}
+raw_data <- read.csv("data.csv", header = TRUE)
+
+```
+
+```{r}
+plot(unlist(raw_data[1,2:178]),type = 'l',
+     xlab="x/180 (s)", ylab="EEG value")
+```
+
+
+```{r}
+samp = raw_data[1,]
+str(samp)
+```
+
+
+```{r}
+library("rsample")
+set.seed(212)
+# First get the training
+raw_split <- initial_split(raw_data)
+raw_train <- training(raw_split)
+# Then further split the training into validate and test
+raw_split2 <- initial_split(testing(raw_split), 0.5)
+raw_validate <- training(raw_split2)
+raw_test <- testing(raw_split2)
+```
+
+```{r}
+library("recipes")
+
+cake <- recipe(y ~ ., data = raw_data) %>%
+  step_meanimpute(all_numeric()) %>% # impute missings on numeric values with the mean
+  step_center(all_numeric()) %>% # center by subtracting the mean from all numeric features
+  step_scale(all_numeric()) %>% # scale by dividing by the standard deviation on all numeric features
+  step_unknown(all_nominal(), -all_outcomes()) %>% # create a new factor level called "unknown" to account for NAs in factors, except for the outcome (response can't be NA)
+  #step_dummy(all_nominal(), one_hot = TRUE) %>% # turn all factors into a one-hot coding
+  prep(training = raw_train) # learn all the parameters of preprocessing on the training data
+
+raw_train_final <- bake(cake, new_data = raw_train) # apply preprocessing to training data
+
+raw_validate_final <- bake(cake, new_data = raw_validate) # apply preprocessing to validation data
+raw_test_final <- bake(cake, new_data = raw_test) # apply preprocessing to testing data
+```
+

@@ -1,0 +1,211 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+this notebook will be specifically for inception v3
+
+
+```{r}
+```
+
+
+```{r}
+train_y <- read.csv('train/class_list.csv')[2]
+
+test_y <- read.csv('test/class_list.csv')[2]
+
+
+
+library("rsample")
+set.seed(212)
+
+library(reticulate)
+use_python('C:/Users/Anaconda3')
+
+load_img_data <- function(folder_name){
+  
+  files <- list.files(path=folder_name, pattern="*.png", full.names=TRUE, recursive=FALSE)
+  print(length(files))
+  output <- array(rep(0, length(files)*150*150*3 ), dim=c(length(files),150,150,3))
+  print(str(output))
+  for(idx in 1:length(files)){
+    # x <- image_read(files[idx])
+    # x <- image_scale(x, '200')
+    # x <- image_data(x,'rgb')
+    x <- imager::load.image(files[idx])
+    x <- imager::resize(x, 150, 150)
+    x <- array(rep(x), dim=c(1,150,150,3))
+    x <- array_reshape(x, c(1,150,150,3))
+    output[idx,,,] <- x
+  }
+  # output <- imagenet_preprocess_input(output)
+  return(output)
+}
+#memory.limit(size=4000)
+train_x <- load_img_data('train')
+
+test_x <- load_img_data('test')
+str(test_x)
+```
+
+
+
+#need shuffling
+```{r}
+set.seed(101)
+rows_idx <- sample(nrow(train_y))
+train_y <- train_y[rows_idx,]
+train_x <- train_x[rows_idx,,,]
+rows_idx2 <-sample(nrow(test_y))
+test_y <- test_y[rows_idx2,]
+test_x <- test_x[rows_idx2,,,]
+```
+
+
+
+
+
+```{r}
+library(reticulate)
+use_python('C:/Users/Anaconda3/condabin') 
+library(keras)
+use_session_with_seed(44)
+
+train_y.cat <- to_categorical(train_y)[,-1]
+test_y.cat <- to_categorical(test_y)[,-1]
+
+```
+
+
+
+```{r}
+basic_v3 <- application_inception_v3(weights = 'imagenet',
+                                         include_top = FALSE,
+                                         input_shape = c(150,150,3))
+```
+
+
+
+```{r}
+predictions <- basic_v3$output %>%
+  layer_global_average_pooling_2d() %>%
+  layer_dense(units=1024, activation='relu') %>%
+  layer_dropout(rate=0.5) %>%
+  layer_dense(units=512, activation='relu') %>%
+  layer_dropout(rate=0.5) %>%
+  layer_dense(units=512, activation='relu') %>%
+  layer_dropout(rate=0.5) %>%
+  layer_dense(units=5, activation='softmax')
+
+stacked_v3 <- keras_model(input = basic_v3$input, output = predictions)
+
+freeze_weights(basic_v3)
+
+```
+
+
+
+```{r}
+stacked_v3 %>% compile(optimizer = 'rmsprop', loss= 'categorical_crossentropy', metrics='accuracy')
+```
+
+
+```{r}
+history <- stacked_v3 %>% fit(train_x,
+  train_y.cat,
+  epochs = 10,
+  batch_size = 50,
+  validation_split = 0.2
+)
+```
+
+
+
+
+
+```{r}
+stacked_v3 %>% evaluate(test_x, test_y.cat)
+pred <- stacked_v3 %>% predict_classes(test_x)
+(tab <- table(Predicted = pred, Actual= unlist(test_y)))
+100*diag(tab) / colSums(tab)
+```
+
+
+```{r}
+layers <- basic_v3$layers
+for (i in 1:length(layers))
+     cat(i, layers[[i]]$name, '\n')
+```
+
+```{r}
+#train top 2 inception blocks 
+freeze_weights(basic_v3, from=1, to=172)
+unfreeze_weights(basic_v3, from=173)
+```
+
+
+```{r}
+stacked_v3 %>% compile(
+  optimizer=optimizer_sgd(lr=0.0001, momentum=0.9),
+  loss='categorical_crossentropy',
+  metrics='accuracy'
+)
+```
+
+
+```{r}
+history <- stacked_v3 %>% fit(train_x,
+  train_y.cat,
+  epochs = 10,
+  batch_size = 50,
+  validation_split = 0.2
+)
+
+```
+
+
+
+```{r}
+
+
+
+
+mod_v3 <-  keras_model_sequential() %>%
+           basic_v3 %>%
+           layer_flatten() %>%
+           layer_dense(units = 256, activation='relu') %>%
+           layer_dense(units = 5, activation='softmax')
+```
+
+```{r}
+summary(mod_v3)
+```
+```{r}
+freeze_weights(basic_v3)
+summary(mod_v3)
+```
+```{r}
+mod_v3 %>% compile(loss= 'categorical_crossentropy',
+                   optimizer = 'adam',
+                   metrics = 'accuracy')
+```
+
+```{r}
+history <- mod_v3 %>% fit(train_x,
+  train_y.cat,
+  epochs = 10,
+  batch_size = 50,
+  validation_split = 0.2
+)
+```
+```{r}
+mod_v3 %>% evaluate(test_x, test_y.cat)
+pred <- mod_v3 %>% predict_classes(test_x)
+(tab <- table(Predicted = pred, Actual= unlist(test_y)))
+100*diag(tab) / colSums(tab)
+```
+```{r}
+str(test_y.cat)
+str(pred)
+```

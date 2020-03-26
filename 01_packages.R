@@ -6,7 +6,10 @@ report.packages.cran <- c("dplyr",
                           "forcats",
                           "rsample",
                           "ranger",
-                          "pROC")
+                          "pROC",
+                         "keras",
+                         "recipes",
+                         )
 
 # Packages on BioConductor:
 report.packages.bioc <- c()
